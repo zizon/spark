@@ -58,7 +58,24 @@ case class DynamicPruningSubquery(
 
   override def nullable: Boolean = false
 
-  override def withNewPlan(plan: LogicalPlan): DynamicPruningSubquery = copy(buildQuery = plan)
+  override def withNewPlan(plan: LogicalPlan): DynamicPruningSubquery = copy(
+    buildKeys = {
+      // buildKeys are associated with buildQuery.
+      // remap it when buildQuery mean to be changed.
+      lazy val attributeMap = buildQuery.output.zip(plan.output).flatMap {
+        case (source, target) if source.resolved => Some(source.exprId -> target)
+        case _ => None
+      }.toMap
+
+      buildKeys.map {
+        _.transformDown {
+          case attribute: Attribute if attribute.resolved =>
+            attributeMap.getOrElse(attribute.exprId, attribute)
+        }
+      }
+    },
+    buildQuery = plan
+  )
 
   override def withNewOuterAttrs(outerAttrs: Seq[Expression]): DynamicPruningSubquery = {
     // Updating outer attrs of DynamicPruningSubquery is unsupported; assert that they match
